@@ -134,7 +134,7 @@ To enable document search capabilities, see the [RAG Setup Guide](documentation/
 
 ```bash
 # Install RAG dependencies
-pip install langchain-chroma chromadb pypdf unstructured # or uv add
+uv sync --extra rag
 
 # Ingest documents
 python ingest_documents.py
