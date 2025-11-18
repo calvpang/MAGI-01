@@ -26,6 +26,7 @@ class MagiAgent:
         memory_db_path: str,
         rag_collection: str,
         enable_rag: bool,
+        enable_search: bool,
     ):
         self.name = name
         self.system_prompt = system_prompt
@@ -62,9 +63,13 @@ class MagiAgent:
                 temperature=temperature,
             )
 
-        # Set up DuckDuckGo search tool
-        self.search_tool = DuckDuckGoSearchRun()
-        self.tools = [self.search_tool]
+        # Set up tools list
+        self.tools = []
+        
+        # Add DuckDuckGo search tool if enabled
+        if enable_search:
+            self.search_tool = DuckDuckGoSearchRun()
+            self.tools.append(self.search_tool)
 
         # Add RAG tool if enabled
         if enable_rag:

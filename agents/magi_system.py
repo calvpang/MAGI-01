@@ -23,6 +23,7 @@ from config import (
     RAG_COLLECTION_NAME,
     RAG_ENABLED,
     MEMORY_DB_PATH,
+    SEARCH_ENABLED
 )
 
 dotenv.load_dotenv()  # Load environment variables from .env file if present
@@ -36,10 +37,14 @@ class MagiSystem:
 
     def __init__(
         self,
+        enable_search: bool = SEARCH_ENABLED,
+        enable_rag: bool = RAG_ENABLED,
     ):
         # Instantiate the Magi System with the specified LLM provider and session ID
         self.llm_provider = LLM_PROVIDER
         self.session_id = str(uuid.uuid4())
+        self.enable_search = enable_search
+        self.enable_rag = enable_rag
 
         # Set provider-specific defaults
         if self.llm_provider.lower() == "gemini":
@@ -65,9 +70,10 @@ class MagiSystem:
                 model_name=self.model_name,
                 api_key=self.api_key,
                 temperature=AGENT_TEMPERATURE,
-                enable_rag=RAG_ENABLED,
+                enable_rag=self.enable_rag,
                 rag_collection=RAG_COLLECTION_NAME,
                 memory_db_path=MEMORY_DB_PATH,
+                enable_search=self.enable_search,
             )
             for p in personalities
         ]
@@ -85,6 +91,7 @@ class MagiSystem:
 
         print(f"MAGI System initialised with {len(self.agents)} agents")
         print(f"Session ID: {self.session_id}")
+        print(f"Tools: Search={'✓' if self.enable_search else '✗'} | RAG={'✓' if self.enable_rag else '✗'}")
         for agent in self.agents:
             print(f"  - {agent.name}")
 
