@@ -23,7 +23,7 @@ from config import (
     RAG_COLLECTION_NAME,
     RAG_ENABLED,
     MEMORY_DB_PATH,
-    SEARCH_ENABLED
+    SEARCH_ENABLED,
 )
 
 dotenv.load_dotenv()  # Load environment variables from .env file if present
@@ -91,7 +91,9 @@ class MagiSystem:
 
         print(f"MAGI System initialised with {len(self.agents)} agents")
         print(f"Session ID: {self.session_id}")
-        print(f"Tools: Search={'✓' if self.enable_search else '✗'} | RAG={'✓' if self.enable_rag else '✗'}")
+        print(
+            f"Tools: Search={'✓' if self.enable_search else '✗'} | RAG={'✓' if self.enable_rag else '✗'}"
+        )
         for agent in self.agents:
             print(f"  - {agent.name}")
 

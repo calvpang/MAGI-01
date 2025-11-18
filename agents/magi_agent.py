@@ -65,7 +65,7 @@ class MagiAgent:
 
         # Set up tools list
         self.tools = []
-        
+
         # Add DuckDuckGo search tool if enabled
         if enable_search:
             self.search_tool = DuckDuckGoSearchRun()
