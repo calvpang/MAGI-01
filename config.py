@@ -9,11 +9,15 @@ LLM_PROVIDER = "lm_studio"  # Change to "gemini" to use Google Gemini
 
 # LM Studio Configuration
 LM_STUDIO_URL = "http://127.0.0.1:1234/v1"
-LM_STUDIO_MODEL = "openai/gpt-oss-20b"  # Change this to your loaded model name in LM Studio
+LM_STUDIO_MODEL = (
+    "openai/gpt-oss-20b"  # Change this to your loaded model name in LM Studio
+)
 LM_STUDIO_API_KEY = "lm-studio-local"  # Set to None for local LM Studio without API key
 
 # Google Gemini Configuration
-GEMINI_MODEL = "gemini-2.5-flash"  # Options: gemini-2.5-pro, gemini-2.5-flash, gemini-pro
+GEMINI_MODEL = (
+    "gemini-2.5-flash"  # Options: gemini-2.5-pro, gemini-2.5-flash, gemini-pro
+)
 
 # Agent Configuration
 AGENT_TEMPERATURE = 0.5  # Creativity level (0.0 = deterministic, 1.0 = very creative)
@@ -36,7 +40,9 @@ MAX_SEARCH_RESULTS = 5
 RAG_ENABLED = True  # Enable RAG tool for agents
 RAG_COLLECTION_NAME = "magi_knowledge_base"  # ChromaDB collection name
 RAG_PERSIST_DIR = "./chroma_db"  # Directory for ChromaDB persistence
-RAG_EMBEDDING_MODEL = "text-embedding-qwen3-embedding-4b"  # Embedding model name in LM Studio
+RAG_EMBEDDING_MODEL = (
+    "text-embedding-qwen3-embedding-4b"  # Embedding model name in LM Studio
+)
 RAG_CHUNK_SIZE = 1000  # Size of text chunks for document splitting
 RAG_CHUNK_OVERLAP = 200  # Overlap between chunks
 RAG_SEARCH_K = 3  # Number of documents to retrieve per query
