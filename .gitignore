@@ -30,10 +30,10 @@ ENV/
 *.sqlite
 *.sqlite3
 magi_agent_history.db
+chroma_db/
 
 # Results
-results_*.json
-latest_result.json
+results
 
 # IDE
 .vscode/
@@ -51,3 +51,6 @@ Thumbs.db
 
 # .env files
 .env
+
+# Documents
+documents/
