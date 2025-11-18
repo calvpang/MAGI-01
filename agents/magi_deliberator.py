@@ -1,34 +1,73 @@
-"""
-Deliberation agent that evaluates and aggregates responses from the Magi agents.
-"""
-
-import json
 from typing import Dict, List
 
+from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
 
 
+# Pydantic models for structured output
+class AgentEvaluation(BaseModel):
+    """Evaluation of a single agent's response"""
+
+    agent: str = Field(description="Name of the agent being evaluated")
+    score: int = Field(
+        description="Score from 1-10 based on quality and relevance", ge=1, le=10
+    )
+    reasoning: str = Field(description="Brief explanation of the score")
+
+
+class DeliberationResult(BaseModel):
+    """Complete deliberation result with evaluations and synthesis"""
+
+    evaluations: List[AgentEvaluation] = Field(
+        description="Individual agent evaluations"
+    )
+    synthesis: str = Field(description="Overall analysis and recommendation")
+    voting_result: str = Field(
+        description="Which response(s) were most valuable and why"
+    )
+
+
+class FinalResult(BaseModel):
+    """Final result output from the deliberation process"""
+
+    evaluation: DeliberationResult = Field(
+        description="The deliberation evaluation results"
+    )
+    final_answer: str = Field(description="The synthesized final answer")
+
+
+# Deliberator agent for evaluating and aggregating responses
 class DeliberatorAgent:
     """
-    Independent deliberator that evaluates Magi responses and facilitates voting.
+    Independent deliberator that evaluates MAGI responses and facilitates voting.
     Supports both LM Studio and Google Gemini as LLM providers.
     """
 
     def __init__(
         self,
-        llm_provider: str = "lm_studio",
-        llm_base_url: str = None,
-        model_name: str = None,
-        api_key: str = None,
-        temperature: float = 0.3,
+        llm_provider: str,
+        llm_base_url: str,
+        model_name: str,
+        api_key: str,
+        temperature: float,
+        session_id: str,
+        memory_db_path: str,
     ):
         self.llm_provider = llm_provider.lower()
+        self.session_id = session_id
+
+        # Set up memory with SQL backend
+        self.message_history = SQLChatMessageHistory(
+            session_id=session_id,
+            connection=memory_db_path,
+            table_name="deliberator",
+        )
 
         # Initialise LLM based on provider
-        if self.llm_provider == "gemini":
-            # Use Google Gemini
+        if self.llm_provider == "gemini":  # Use Google Gemini
             gemini_api_key = api_key
             if not gemini_api_key:
                 raise ValueError(
@@ -36,15 +75,15 @@ class DeliberatorAgent:
                 )
 
             self.llm = ChatGoogleGenerativeAI(
-                model=model_name or "gemini-2.5-flash",
+                model=model_name,
                 google_api_key=gemini_api_key,
                 temperature=temperature,
                 convert_system_message_to_human=True,  # Gemini compatibility
             )
         else:
             self.llm = ChatOpenAI(
-                base_url=llm_base_url or "http://127.0.0.1:1234/v1",
-                api_key=api_key or "lm-studio-local",
+                base_url=llm_base_url,
+                api_key=api_key,
                 model=model_name,
                 temperature=temperature,
             )
@@ -77,22 +116,17 @@ class DeliberatorAgent:
                     {responses}
 
                     Please evaluate each response and provide:
-                    1. Individual scores and brief reasoning
+                    1. Individual scores and brief reasoning for each agent
                     2. Key insights from each perspective
                     3. Areas of agreement and disagreement
-                    4. A synthesized recommendation
-
-                    Format your response as JSON with this structure:
-                    {{
-                        "evaluations": [
-                            {{"agent": "agent_name", "score": score, "reasoning": "brief explanation"}},
-                            ...
-                        ],
-                        "synthesis": "overall analysis and recommendation",
-                        "voting_result": "which response(s) were most valuable and why"
-                    }}""",
+                    4. A synthesized recommendation""",
                 ),
             ]
+        )
+
+        # Create structured output chain for evaluations
+        self.evaluation_chain = (
+            self.evaluation_prompt | self.llm.with_structured_output(DeliberationResult)
         )
 
         # Prompt for facilitating vote
@@ -117,9 +151,12 @@ class DeliberatorAgent:
             ]
         )
 
-    def evaluate_responses(self, question: str, responses: List[Dict]) -> Dict:
+    def evaluate_responses(
+        self, question: str, responses: List[Dict]
+    ) -> DeliberationResult:
         """
         Evaluate all agent responses and provide scoring.
+        Returns a structured DeliberationResult object.
         """
         # Format responses for evaluation
         formatted_responses = "\n\n".join(
@@ -131,36 +168,17 @@ class DeliberatorAgent:
         )
 
         try:
-            # Get evaluation from deliberation agent
-            messages = self.evaluation_prompt.format_messages(
-                question=question, responses=formatted_responses
-            )
-            result = self.llm.invoke(messages)
+            # Get message history for context
+            chat_history = self.message_history.messages
 
-            # Extract content from the result
-            if hasattr(result, "content"):
-                content = result.content
-            else:
-                content = str(result)
-
-            # Try to parse JSON response
-            try:
-                evaluation = json.loads(content)
-            except json.JSONDecodeError:
-                # If JSON parsing fails, return structured data anyway
-                evaluation = {
-                    "evaluations": [
-                        {
-                            "agent": r["agent"],
-                            "score": 7,
-                            "reasoning": "Evaluation completed",
-                        }
-                        for r in responses
-                        if r["success"]
-                    ],
-                    "synthesis": content,
-                    "voting_result": "See synthesis for details",
+            # Use structured output chain to get Pydantic model directly
+            evaluation = self.evaluation_chain.invoke(
+                {
+                    "question": question,
+                    "responses": formatted_responses,
+                    "chat_history": chat_history,
                 }
+            )
 
             return evaluation
 
@@ -170,15 +188,22 @@ class DeliberatorAgent:
             import traceback
 
             traceback.print_exc()
-            return {
-                "error": str(e),
-                "evaluations": [],
-                "synthesis": f"Error during evaluation: {str(e)}",
-                "voting_result": "Error",
-            }
+
+            # Return a default DeliberationResult on error
+            return DeliberationResult(
+                evaluations=[
+                    AgentEvaluation(
+                        agent=r["agent"], score=1, reasoning="Evaluation failed."
+                    )
+                    for r in responses
+                    if r["success"]
+                ],
+                synthesis=f"Error during evaluation: {str(e)}",
+                voting_result="Error",
+            )
 
     def synthesise_final_answer(
-        self, question: str, responses: List[Dict], evaluation: Dict
+        self, question: str, responses: List[Dict], evaluation: DeliberationResult
     ) -> str:
         """
         Create a final synthesised answer based on all responses and evaluation.
@@ -190,14 +215,14 @@ class DeliberatorAgent:
         response_map = {r["agent"]: r["response"] for r in responses if r["success"]}
 
         # Combine with evaluation scores if available
-        if evaluation.get("evaluations"):
-            for eval_item in evaluation["evaluations"]:
-                agent_name = eval_item["agent"]
+        if evaluation.evaluations:
+            for eval_item in evaluation.evaluations:
+                agent_name = eval_item.agent
                 agent_response = response_map.get(agent_name, "No response available")
                 scored_items.append(
                     f"Agent: {agent_name}\n"
-                    f"Score: {eval_item['score']}/10\n"
-                    f"Reasoning: {eval_item['reasoning']}\n"
+                    f"Score: {eval_item.score}/10\n"
+                    f"Reasoning: {eval_item.reasoning}\n"
                     f"Full Response: {agent_response}"
                 )
         else:
@@ -232,44 +257,38 @@ class DeliberatorAgent:
             traceback.print_exc()
             return f"Error synthesizing answer: {str(e)}"
 
-    def process_magi_decision(self, question: str, responses: List[Dict]) -> Dict:
+    def process_magi_decision(
+        self, question: str, responses: List[Dict]
+    ) -> FinalResult:
         """
         Complete evaluation and synthesis process.
+        Returns a structured FinalResult object.
         """
         print("\n" + "=" * 80)
         print("MAGI DELIBERATION")
         print("=" * 80)
 
-        # Evaluate responses
+        # Evaluate responses (returns structured Pydantic model)
         evaluation = self.evaluate_responses(question, responses)
 
-        # Check if synthesis contains JSON wrapped in markdown and extract it first
-        synthesis = evaluation.get("synthesis", "No synthesis available")
-        if synthesis.startswith("```json"):
-            # Extract JSON from markdown code block
-            try:
-                json_text = synthesis.split("```json")[1].split("```")[0].strip()
-                parsed = json.loads(json_text)
-                # Update evaluation with the parsed data
-                evaluation = parsed
-            except (json.JSONDecodeError, IndexError, KeyError):
-                # If parsing fails, keep original evaluation
-                pass
-
-        # Now print the correct scores
-        if evaluation.get("evaluations"):
+        # Print the evaluation scores
+        if evaluation.evaluations:
             print("\nIndividual Scores:")
-            for eval_item in evaluation["evaluations"]:
-                print(f"  {eval_item['agent']}: {eval_item['score']}/10")
-                print(f"    {eval_item['reasoning']}")
+            for eval_item in evaluation.evaluations:
+                print(f"  {eval_item.agent}: {eval_item.score}/10")
+                print(f"    {eval_item.reasoning}")
         else:
             print("\nIndividual Scores: Not available")
 
         print("\nSynthesis:")
-        print(evaluation.get("synthesis", "No synthesis available"))
+        print(evaluation.synthesis)
 
         # Generate final answer
         final_answer = self.synthesise_final_answer(question, responses, evaluation)
+
+        # Store final answer in message history
+        self.message_history.add_user_message(question)
+        self.message_history.add_ai_message(final_answer)
 
         print("\n" + "=" * 80)
         print("FINAL SYNTHESISED ANSWER")
@@ -277,7 +296,8 @@ class DeliberatorAgent:
         print(final_answer)
         print("=" * 80 + "\n")
 
-        return {
-            "evaluation": evaluation,
-            "final_answer": final_answer,
-        }
+        return FinalResult(evaluation=evaluation, final_answer=final_answer)
+
+    def clear_memory(self):
+        """Clear the deliberator's conversation history."""
+        self.message_history.clear()

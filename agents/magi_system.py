@@ -1,6 +1,8 @@
 """
-Main entry point for the Magi System - a multi-agent council with voting.
+MAGI System - a multi-agent council with voting.
 """
+
+import os
 import uuid
 from datetime import datetime
 from typing import Dict
@@ -18,10 +20,12 @@ from config import (
     LM_STUDIO_API_KEY,
     LM_STUDIO_MODEL,
     LM_STUDIO_URL,
+    RAG_COLLECTION_NAME,
+    RAG_ENABLED,
+    MEMORY_DB_PATH,
 )
 
 dotenv.load_dotenv()  # Load environment variables from .env file if present
-import os
 
 
 class MagiSystem:
@@ -61,6 +65,9 @@ class MagiSystem:
                 model_name=self.model_name,
                 api_key=self.api_key,
                 temperature=AGENT_TEMPERATURE,
+                enable_rag=RAG_ENABLED,
+                rag_collection=RAG_COLLECTION_NAME,
+                memory_db_path=MEMORY_DB_PATH,
             )
             for p in personalities
         ]
@@ -72,6 +79,8 @@ class MagiSystem:
             model_name=self.model_name,
             api_key=self.api_key,
             temperature=JUDGE_TEMPERATURE,
+            session_id=self.session_id,
+            memory_db_path=MEMORY_DB_PATH,
         )
 
         print(f"MAGI System initialised with {len(self.agents)} agents")
@@ -81,7 +90,7 @@ class MagiSystem:
 
     def query_magi(self, question: str) -> Dict:
         """
-        Submit a query to all Magi agents and get deliberator's evaluation.
+        Submit a query to all MAGI agents and get deliberator's evaluation.
         """
         print("\n" + "=" * 80)
         print(f"MAGI QUERY: {question}")
@@ -109,16 +118,13 @@ class MagiSystem:
             "question": question,
             "timestamp": datetime.now().isoformat(),
             "agent_responses": responses,
-            "evaluation": result["evaluation"],
-            "final_answer": result["final_answer"],
+            "evaluation": result.evaluation,
+            "final_answer": result.final_answer,
         }
 
     def clear_all_memory(self):
-        """Clear memory for all agents."""
+        """Clear memory for all agents and the deliberator."""
         for agent in self.agents:
             agent.clear_memory()
+        self.deliberator.clear_memory()
         print("All agent memories cleared.")
-
-
-
-

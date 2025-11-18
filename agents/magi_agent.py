@@ -1,18 +1,15 @@
-import os
-
-import dotenv
 from langchain.agents import create_agent
 from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-dotenv.load_dotenv()
+from tools.rag_tool import get_rag_tool
 
 
 class MagiAgent:
     """
-    Individual Magi agent with memory, search capability, and unique personality.
+    Individual MAGI agent with memory, RAG capability, search capability, and unique personality.
     Supports both LM Studio and Google Gemini as LLM providers.
     """
 
@@ -21,28 +18,31 @@ class MagiAgent:
         name: str,
         system_prompt: str,
         session_id: str,
-        llm_provider: str = "lm_studio",
-        llm_base_url: str = "http://127.0.0.1:1234/v1",
-        model_name: str = "gpt-oss-20b",
-        api_key: str = "lm-studio-local",
-        temperature: float = 0.7,
+        llm_provider: str,
+        llm_base_url: str,
+        model_name: str,
+        api_key: str,
+        temperature: float,
+        memory_db_path: str,
+        rag_collection: str,
+        enable_rag: bool,
     ):
         self.name = name
         self.system_prompt = system_prompt
         self.session_id = session_id
         self.llm_provider = llm_provider.lower()
+        self.prompt = system_prompt
 
         # Set up memory with SQL backend
         self.message_history = SQLChatMessageHistory(
-            session_id=f"{session_id}_{name}",
-            connection="sqlite:///magi_agent_history.db",
+            session_id=session_id,
+            connection=memory_db_path,
             table_name=name.lower().replace("-", "_"),
         )
 
         # Initialise LLM based on provider
-        if self.llm_provider == "gemini":
-            # Use Google Gemini
-            gemini_api_key = api_key or os.getenv("GEMINI_API_KEY")
+        if self.llm_provider == "gemini":  # Use Google Gemini
+            gemini_api_key = api_key
             if not gemini_api_key:
                 raise ValueError(
                     "Gemini API key required. Set GEMINI_API_KEY environment variable."
@@ -66,7 +66,13 @@ class MagiAgent:
         self.search_tool = DuckDuckGoSearchRun()
         self.tools = [self.search_tool]
 
-        self.prompt = system_prompt
+        # Add RAG tool if enabled
+        if enable_rag:
+            try:
+                self.rag_tool = get_rag_tool(collection_name=rag_collection)
+                self.tools.append(self.rag_tool)
+            except Exception as e:
+                print(f"Failed to initialise RAG tool: {e}")
 
         # Create agent
         self.agent = create_agent(
@@ -78,7 +84,7 @@ class MagiAgent:
     def respond(self, query: str, debug: bool = False):
         """
         Generate a response to the query using the agent's tools and memory.
-        
+
         Args:
             query: The user's question
             debug: If True, print detailed debugging information including search results
@@ -92,32 +98,32 @@ class MagiAgent:
 
             # Debug: Print all messages to see tool calls and results
             if debug:
-                print(f"\n{'='*60}")
+                print(f"\n{'=' * 60}")
                 print(f"DEBUG - {self.name} - Full Response Messages:")
-                print(f"{'='*60}")
+                print(f"{'=' * 60}")
                 for i, msg in enumerate(response["messages"]):
                     msg_type = getattr(msg, "type", "unknown")
                     print(f"\n[Message {i}] Type: {msg_type}")
-                    
+
                     if msg_type == "ai":
                         # Check for tool calls
-                        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        if hasattr(msg, "tool_calls") and msg.tool_calls:
                             print(f"  Tool Calls: {len(msg.tool_calls)}")
                             for tc in msg.tool_calls:
                                 print(f"    - Tool: {tc.get('name', 'unknown')}")
                                 print(f"      Args: {tc.get('args', {})}")
-                        if hasattr(msg, 'content') and msg.content:
+                        if hasattr(msg, "content") and msg.content:
                             print(f"  Content: {msg.content[:200]}...")
-                    
+
                     elif msg_type == "tool":
                         # This is the search result!
                         print(f"  Tool Name: {getattr(msg, 'name', 'unknown')}")
-                        print(f"  Tool Result:")
+                        print("  Tool Result:")
                         print(f"    {getattr(msg, 'content', 'No content')[:500]}...")
-                    
+
                     elif msg_type == "human":
                         print(f"  Content: {getattr(msg, 'content', 'No content')}")
-                print(f"{'='*60}\n")
+                print(f"{'=' * 60}\n")
 
             # Retrieve final agent response
             final_ai_response = next(
