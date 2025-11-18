@@ -75,7 +75,7 @@ class RAGTool:
         """
         if self.vectorstore is None:
             return "Knowledge base is not available. Please ingest documents first."
-        
+
         try:
             # Perform similarity search
             docs = self.vectorstore.similarity_search(query, k=k)
