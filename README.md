@@ -32,10 +32,11 @@ The Magi System is inspired by the MAGI supercomputer system, featuring a counci
 Each agent can:
 
 - Search the web using DuckDuckGo
+- Query with RAG using ChromaDB
 - Maintain conversation memory using SQL storage
 - Respond based on their unique personality and expertise
 
-An independent **Deliberator Agent** evaluates all responses, scores them, and synthesizes a final answer.
+An independent **Deliberator Agent** evaluates all responses, scores them, and synthesises a final answer.
 
 ## Architecture
 
@@ -43,9 +44,9 @@ An independent **Deliberator Agent** evaluates all responses, scores them, and s
 User Query
     ↓
 Council (3 Agents in parallel)
-    ├── MELCHIOR (Scientist) → Response + Search
-    ├── BALTHASAR (Strategist) → Response + Search
-    └── CASPER (Ethicist) → Response + Search
+    ├── MELCHIOR (Scientist) → Response + Search + RAG
+    ├── BALTHASAR (Strategist) → Response + Search + RAG
+    └── CASPER (Ethicist) → Response + Search + RAG
     ↓
 Judge Agent
     ├── Evaluates responses
@@ -58,13 +59,15 @@ Final Output
 ## Features
 
 - **Multi-Agent Council**: Three agents with distinct personalities and reasoning approaches
-- **Web Search**: Each agent can search DuckDuckGo for real-time information
-- **Memory**: Conversation history persisted in SQLite for each agent
-- **Independent Deliberation**: Objective evaluation and vote aggregation
-- **LM Studio Integration**: Uses local LLMs via LM Studio's OpenAI-compatible API
-- **LangChain Orchestration**: Built on LangChain for robust agent management
-- **🎨 Streamlit Web UI**: Beautiful, interactive interface
-- **📜 History Tracking**: Built-in query history and export
+- **Web Search**: Each agent can search DuckDuckGo for real-time information (toggleable)
+- **RAG (Knowledge Base)**: Agents can search your own documents using ChromaDB and embeddings (toggleable)
+- **Memory**: Conversation history persisted in SQLite for each agent and deliberator
+- **Independent Deliberation**: Objective evaluation and vote aggregation with Pydantic models
+- **Dual LLM Support**: Choose between LM Studio (local) or Google Gemini (cloud)
+- **LangChain Orchestration**: Built on LangChain for agent management
+- **🎨 Streamlit Web UI**: Interactive interface with tool toggles
+- **📜 History Tracking**: Built-in query history and JSON export
+- **Structured Output**: Type-safe responses using Pydantic models
 
 ## User Interfaces
 
@@ -73,7 +76,7 @@ Final Output
 Interactive Streamlit interface with visual feedback:
 
 ```bash
-python3 launch_webui.py
+python launch_webui.py
 ```
 
 ### 💻 Command Line
@@ -81,7 +84,7 @@ python3 launch_webui.py
 Traditional terminal interface:
 
 ```bash
-python3 main.py
+python main.py
 ```
 
 ## Prerequisites
@@ -107,9 +110,10 @@ pip install -e . # or uv sync
 ### 1. Start LM Studio Server
 
 1. Open LM Studio
-2. Load a model (recommended: Llama-3-8B or similar)
-3. Click "Start Server" (default: `http://localhost:1234`)
-4. Note the model name shown in LM Studio
+2. Load a chat model (recommended: Llama-3-8B or similar)
+3. **(Optional)** Load an embedding model if using RAG (e.g., nomic-embed-text)
+4. Click "Start Server" (default: `http://localhost:1234`)
+5. Note the model names shown in LM Studio
 
 ### 2. Configure Model (Optional)
 
@@ -117,8 +121,29 @@ If your LM Studio server runs on a different port or you want to specify the mod
 
 ```python
 LM_STUDIO_URL = "http://localhost:1234/v1"  # Change if needed
-MODEL_NAME = "your-model-name"  # Change to match your loaded model
+LM_STUDIO_MODEL = "your-model-name"  # Change to match your loaded chat model
+RAG_EMBEDDING_MODEL = "your-model-name"  # Change to match embedding model
+RAG_ENABLED = False  # Set to True to enable RAG by default
 ```
+
+### 3. RAG Setup (Optional)
+
+To enable document search capabilities, see the [RAG Setup Guide](documentation/RAG_SETUP.md) for detailed instructions.
+
+**Quick start:**
+
+```bash
+# Install RAG dependencies
+pip install langchain-chroma chromadb pypdf unstructured # or uv add
+
+# Ingest documents
+python ingest_documents.py
+
+# Enable in Web UI: Toggle "Enable RAG" before initialisation
+# Or in config.py: Set RAG_ENABLED = True
+```
+
+The RAG system allows agents to search your own documents using ChromaDB and embeddings from LM Studio.
 
 ## Project Structure
 
@@ -129,19 +154,27 @@ MAGI-01/
 │   ├── magi_deliberator.py     # Deliberator agent for evaluation & synthesis
 │   ├── magi_system.py          # System orchestration & coordination
 │   └── personalities.py         # Agent personality definitions
-├── config.py                    # Configuration (LLM provider, models, etc.)
-├── main.py                      # CLI entry point
-├── example.py                   # Quick example/demo script
-├── test.py                      # Testing utilities
-├── streamlit_app.py            # Streamlit web interface
-├── launch_webui.py             # Web UI launcher script
-├── pyproject.toml              # Project dependencies & metadata
+├── chroma_db/                  # ChromaDB vector store (auto-created)
+├── documentation/              # Additional documentation
+│   └── ARCHITECTURE.md         # Architecture diagram
+│   └── RAG_SETUP.md             # RAG setup guide
+├── results/                    # Query results & exports (auto-created)
+├── tests/                       # Agent tools
+│   └── test_embeddings.py       # Test embedding setup
+│   └── test_magi_system.py       # Test magi_system
+├── tools/                       # Agent tools
+│   └── rag_tool.py             # RAG tool for document search
 ├── .env                        # Environment variables (API keys)
 ├── .gitignore                  # Git ignore rules
-├── README.md                   # This file
-├── ARCHITECTURE.md             # System architecture documentation
+├── config.py                    # Configuration (LLM provider, models, etc.)
+├── example.py                   # Quick example/demo script
+├── ingest_documents.py         # Document ingestion utilities
+├── launch_webui.py             # Web UI launcher script
 ├── magi_agent_history.db       # SQLite database (auto-created)
-└── results/                    # Query results & exports
+├── main.py                      # CLI entry point
+├── pyproject.toml              # Project dependencies & metadata
+├── README.md                   # This file
+└── streamlit_app.py            # Streamlit web interface                   
 ```
 
 ## How It Works
@@ -150,26 +183,52 @@ MAGI-01/
 When you submit a question, it's sent to all three MAGI agents simultaneously.
 
 ### 2. Agent Processing
+
 Each agent:
+
 - Receives the query with their personality context
-- Can search DuckDuckGo for relevant information
+- Can search DuckDuckGo for relevant information (if enabled)
+- Can search the knowledge base using RAG (if enabled)
 - Accesses their conversation memory
 - Generates a response based on their unique perspective
 
 ### 3. Evaluation
+
 The Deliberator agent:
+
 - Receives all agent responses
 - Scores each response (1-10) based on relevance, depth, evidence, and value
 - Identifies agreements and contradictions
 - Provides reasoning for scores
 
 ### 4. Synthesis
+
 The Deliberator creates a final synthesised answer that:
+
 - Incorporates the best elements from each perspective
 - Resolves conflicts between agents
 - Provides a comprehensive recommendation
 
-## Customization
+## Customisation
+
+### Tool Configuration
+
+Toggle tools in the Streamlit Web UI before initialisation, or set defaults in `config.py`:
+
+```python
+# Enable/disable tools
+RAG_ENABLED = True  # Enable RAG knowledge base search
+SEARCH_ENABLED = True  # Enable DuckDuckGo web search
+```
+
+In code:
+
+```python
+from agents.magi_system import MagiSystem
+
+# Create system with specific tool configuration
+system = MagiSystem(enable_search=True, enable_rag=False)
+```
 
 ### Adding New Agents
 
@@ -208,28 +267,40 @@ self.llm = ChatOpenAI(
 ## Troubleshooting
 
 ### "Connection refused" error
+
 - Make sure LM Studio server is running
 - Check that the URL matches (default: `http://localhost:1234`)
 - Verify a model is loaded in LM Studio
 
 ### Slow responses
+
 - This is normal with local LLMs, especially with search enabled
 - Consider using a smaller/faster model
 - Each query requires 3+ LLM calls (3 agents + judge evaluation + synthesis)
 
 ### Import errors
+
 - Make sure all dependencies are installed: `pip install -e .`
 - Check Python version: `python --version` (needs 3.11+)
 
 ### Search not working
+
 - Check internet connection
 - DuckDuckGo search may be rate-limited; wait a moment and retry
 - Verify `duckduckgo-search` package is installed
 
 ### Memory not persisting
+
 - Check that `magi_agent_history.db` is being created in the project directory
 - Make sure you have write permissions in the directory
 - SQLite database is created automatically on first run
+
+### RAG not working
+
+- See [RAG_SETUP.md](documentation/RAG_SETUP.md) for detailed troubleshooting
+- Ensure ChromaDB and dependencies are installed
+- Verify documents have been ingested
+- Check that embedding model is loaded in LM Studio
 
 ## Performance Notes
 
@@ -241,6 +312,7 @@ self.llm = ChatOpenAI(
 ## Future Enhancements
 
 Potential improvements:
+
 - Async parallel agent execution
 - More sophisticated voting mechanisms
 - Additional tools (calculator, code execution, etc.)
